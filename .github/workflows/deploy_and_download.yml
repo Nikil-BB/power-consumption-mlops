@@ -1,0 +1,59 @@
+name: Deploy and Download ML Artifacts
+
+on:
+  workflow_dispatch:  # run manually from GitHub Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      # 👉 Replace this with your actual deployment steps
+      - name: Deploy application
+        run: |
+          echo "Deploying application..."
+          # e.g., docker build, push to ECR, deploy to EC2/Lambda
+
+  download-artifacts:
+    runs-on: ubuntu-latest
+    needs: deploy   # ✅ this job runs only after deploy succeeds
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install SnowSQL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl unzip
+          curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash
+          bash snowsql-1.2.29-linux_x86_64.bash
+
+      - name: Download ML Artifacts from Snowflake
+        env:
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWSQL_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWSQL_PWD: ${{ secrets.SNOWFLAKE_PWD }}
+          SNOWSQL_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWSQL_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWSQL_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWSQL_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+        run: |
+          snowsql -a $SNOWSQL_ACCOUNT \
+                  -u $SNOWSQL_USER \
+                  -p $SNOWSQL_PWD \
+                  -r $SNOWSQL_ROLE \
+                  -w $SNOWSQL_WAREHOUSE \
+                  -d $SNOWSQL_DATABASE \
+                  -s $SNOWSQL_SCHEMA \
+                  -q "GET @ML_MODELS_STAGE/* file://$GITHUB_WORKSPACE/"
+
+      - name: Upload ML Artifacts to GitHub
+        uses: actions/upload-artifact@v3
+        with:
+          name: ml_artifacts
+          path: |
+            power_model.joblib.gz
+            prediction_vs_actuals.png
+
