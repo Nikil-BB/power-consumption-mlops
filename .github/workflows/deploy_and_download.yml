@@ -1,14 +1,16 @@
 name: Deploy and Download ML Artifacts
 
 on:
-  workflow_dispatch:  # run manually from GitHub Actions tab
+  push:
+    branches:
+      - main   # runs whenever you push to main branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # 👉 Replace this with your actual deployment steps
       - name: Deploy application
@@ -21,14 +23,19 @@ jobs:
     needs: deploy   # ✅ this job runs only after deploy succeeds
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install SnowSQL
+      - name: Install SnowSQL (latest from Snowflake repo)
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl unzip
-          curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash
-          bash snowsql-1.2.29-linux_x86_64.bash
+          sudo apt-get install -y curl unzip apt-transport-https gnupg
+          curl -s https://sfc-repo.snowflakecomputing.com/apt/snowflake.asc | sudo apt-key add -
+          echo "deb https://sfc-repo.snowflakecomputing.com/apt/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/snowflake.list
+          sudo apt-get update
+          sudo apt-get install -y snowsql
+
+      - name: Verify SnowSQL Installation
+        run: snowsql --version
 
       - name: Download ML Artifacts from Snowflake
         env:
@@ -56,4 +63,5 @@ jobs:
           path: |
             power_model.joblib.gz
             prediction_vs_actuals.png
+
 
