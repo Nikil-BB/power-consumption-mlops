@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # ✅ use Ubuntu 22.04
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -19,18 +19,18 @@ jobs:
           # e.g., docker build, push to ECR, deploy to EC2/Lambda
 
   download-artifacts:
-    runs-on: ubuntu-latest
-    needs: deploy   # ✅ runs only after deploy succeeds
+    runs-on: ubuntu-22.04   # ✅ SnowSQL repo supports Ubuntu 22.04
+    needs: deploy   # ✅ only runs after deploy succeeds
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install SnowSQL (fixed for Ubuntu 24.04)
+      - name: Install SnowSQL (from Snowflake repo for Ubuntu 22.04)
         run: |
           sudo apt-get update
           sudo apt-get install -y curl unzip apt-transport-https gnupg
           curl -s https://sfc-repo.snowflakecomputing.com/apt/snowflake.asc | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/snowflake.gpg > /dev/null
-          echo "deb [signed-by=/etc/apt/trusted.gpg.d/snowflake.gpg] https://sfc-repo.snowflakecomputing.com/apt/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/snowflake.list
+          echo "deb [signed-by=/etc/apt/trusted.gpg.d/snowflake.gpg] https://sfc-repo.snowflakecomputing.com/apt/ubuntu jammy main" | sudo tee /etc/apt/sources.list.d/snowflake.list
           sudo apt-get update
           sudo apt-get install -y snowsql
 
@@ -63,6 +63,3 @@ jobs:
           path: |
             power_model.joblib.gz
             prediction_vs_actuals.png
-
-
-
