@@ -3,7 +3,7 @@ name: Deploy and Download ML Artifacts
 on:
   push:
     branches:
-      - main   # runs whenever you push to main branch
+      - main
 
 jobs:
   deploy:
@@ -12,7 +12,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 👉 Replace this with your actual deployment steps
       - name: Deploy application
         run: |
           echo "Deploying application..."
@@ -25,10 +24,11 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install SnowSQL (non-interactive)
+      - name: Install SnowSQL (non-interactive, CI-safe)
         run: |
           curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash
-          SNOWSQL_DEST=$HOME/bin SNOWSQL_LOGIN_SHELL=0 bash snowsql-1.2.29-linux_x86_64.bash -y
+          mkdir -p $HOME/bin
+          SNOWSQL_DEST=$HOME/bin SNOWSQL_LOGIN_SHELL= bash snowsql-1.2.29-linux_x86_64.bash -y
           echo "$HOME/bin" >> $GITHUB_PATH
 
       - name: Verify SnowSQL Installation
@@ -53,6 +53,9 @@ jobs:
                   -s $SNOWSQL_SCHEMA \
                   -q "GET @ML_MODELS_STAGE/* file://$GITHUB_WORKSPACE/"
 
+      - name: Show downloaded files
+        run: ls -lh $GITHUB_WORKSPACE
+
       - name: Upload ML Artifacts to GitHub
         uses: actions/upload-artifact@v4
         with:
@@ -60,4 +63,3 @@ jobs:
           path: |
             power_model.joblib.gz
             prediction_vs_actuals.png
-
