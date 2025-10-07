@@ -8,14 +8,10 @@ on:
 
 jobs:
   snowflake-pipeline:
-    runs-on: ubuntu-latest
-
-    # ✅ Use official Snowflake Docker image with SnowSQL pre-installed
-    container:
-      image: snowflakedb/snowsql:latest
+    runs-on: ubuntu-22.04   # ✅ 22.04 is safer for bash installer
 
     env:
-      SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}        # e.g. vy23825.central-india.azure
+      SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWSQL_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWSQL_PWD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       SNOWSQL_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
@@ -27,9 +23,20 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ✅ Step 1: Trigger the ML pipeline tasks (01 → 04)
+      - name: Install SnowSQL CLI (stable CI install)
+        run: |
+          echo "🚀 Installing SnowSQL..."
+          mkdir -p $HOME/snowflake_cli
+          cd $HOME/snowflake_cli
+          curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash
+          bash snowsql-1.2.29-linux_x86_64.bash -y -p $HOME/snowflake_cli
+          export PATH="$HOME/snowflake_cli/bin:$PATH"
+          echo "✅ SnowSQL installed successfully."
+          snowsql -v
+
       - name: Trigger Snowflake ML Pipeline Tasks
         run: |
+          export PATH="$HOME/snowflake_cli/bin:$PATH"
           echo "🚀 Triggering Snowflake ML pipeline..."
           snowsql \
             -a $SNOWSQL_ACCOUNT \
@@ -47,15 +54,16 @@ jobs:
             "
           echo "✅ ML pipeline triggered successfully."
 
-      # ✅ Step 2: Wait a bit for tasks to complete (optional)
-      - name: Pause briefly to allow Snowflake tasks to finish
-        run: sleep 60
-
-      # ✅ Step 3: Fetch model and plot files from Snowflake stage
-      - name: Fetch Model and Artifacts from Snowflake
+      - name: Wait for Pipeline to Complete
         run: |
+          echo "⏳ Waiting for 60 seconds before fetching model..."
+          sleep 60
+
+      - name: Fetch Model and Plots from Snowflake
+        run: |
+          export PATH="$HOME/snowflake_cli/bin:$PATH"
           mkdir -p downloads
-          echo "⬇️ Fetching files from Snowflake..."
+          echo "⬇️ Fetching model files from Snowflake..."
           snowsql \
             -a $SNOWSQL_ACCOUNT \
             -u $SNOWSQL_USER \
@@ -71,18 +79,15 @@ jobs:
             "
           echo "✅ Model and plots downloaded successfully."
 
-      # ✅ Step 4: Verify that downloads exist
-      - name: Verify Downloaded Files
+      - name: Verify Files
         run: |
-          echo "📂 Checking downloaded files..."
+          echo "📂 Verifying downloaded files..."
           ls -lh downloads/
           if [ ! -f downloads/power_model.joblib.gz ]; then
-            echo "❌ Model file missing!"
-            exit 1
+            echo "❌ Model file missing!"; exit 1
           fi
-          echo "✅ Files verified successfully."
+          echo "✅ All files present."
 
-      # ✅ Step 5: Upload artifacts back to GitHub
       - name: Upload Model Artifacts
         uses: actions/upload-artifact@v4
         with:
