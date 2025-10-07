@@ -1,4 +1,4 @@
-name: Fetch Model from Snowflake (CLI Only - Fixed Installer)
+name: Fetch Model from Snowflake (CLI Stable Install)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
   fetch-model:
     runs-on: ubuntu-latest
     env:
-      SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}    # e.g. vy23825.central-india.azure
+      SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWSQL_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWSQL_PWD: ${{ secrets.SNOWFLAKE_PASSWORD }}
       SNOWSQL_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
@@ -22,20 +22,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ✅ Correct SnowSQL installation for Ubuntu runners
-      - name: Install SnowSQL CLI
+      - name: Install SnowSQL CLI (manual stable method)
         run: |
-          echo "🚀 Downloading and installing SnowSQL..."
+          echo "🚀 Installing SnowSQL safely..."
+          mkdir -p $HOME/snowflake_cli
+          cd $HOME/snowflake_cli
           curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash
-          bash snowsql-1.2.29-linux_x86_64.bash -y
-          export PATH=$HOME/bin:$PATH
+          bash snowsql-1.2.29-linux_x86_64.bash -y -d $HOME/snowflake_cli -p $HOME/snowflake_cli
+          export PATH="$HOME/snowflake_cli/bin:$PATH"
+          echo "✅ SnowSQL installed successfully."
           snowsql -v
 
       - name: Fetch model and plot from Snowflake stage
         run: |
+          export PATH="$HOME/snowflake_cli/bin:$PATH"
           mkdir -p downloads
-          export PATH=$HOME/bin:$PATH
           echo "⬇️ Fetching files from Snowflake..."
+          
           snowsql \
             -a $SNOWSQL_ACCOUNT \
             -u $SNOWSQL_USER \
@@ -45,6 +48,7 @@ jobs:
             -d $SNOWSQL_DATABASE \
             -s $SNOWSQL_SCHEMA \
             -q "GET @ML_MODELS_STAGE/power_model.joblib.gz file://$GITHUB_WORKSPACE/downloads/;"
+
           snowsql \
             -a $SNOWSQL_ACCOUNT \
             -u $SNOWSQL_USER \
@@ -54,7 +58,22 @@ jobs:
             -d $SNOWSQL_DATABASE \
             -s $SNOWSQL_SCHEMA \
             -q "GET @ML_MODELS_STAGE/prediction_vs_actuals.png file://$GITHUB_WORKSPACE/downloads/;"
+
           echo "✅ Model and plot downloaded successfully to ./downloads/"
+
+      - name: Verify downloads
+        run: |
+          echo "📂 Checking downloaded files..."
+          ls -lh downloads/
+          if [ ! -f downloads/power_model.joblib.gz ]; then
+            echo "❌ Model file missing!"
+            exit 1
+          fi
+          if [ ! -f downloads/prediction_vs_actuals.png ]; then
+            echo "❌ Plot file missing!"
+            exit 1
+          fi
+          echo "✅ Files verified successfully."
 
       - name: Upload artifacts (model + plot)
         uses: actions/upload-artifact@v4
