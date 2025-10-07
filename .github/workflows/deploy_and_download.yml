@@ -1,4 +1,4 @@
-name: Fetch Model from Snowflake (CLI Only)
+name: Fetch Model from Snowflake (CLI Only - Fixed Installer)
 
 on:
   workflow_dispatch:
@@ -22,15 +22,20 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # ✅ Correct SnowSQL installation for Ubuntu runners
       - name: Install SnowSQL CLI
         run: |
-          sudo apt-get update
-          sudo apt-get install -y snowflake-snowsql
+          echo "🚀 Downloading and installing SnowSQL..."
+          curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash
+          bash snowsql-1.2.29-linux_x86_64.bash -y
+          export PATH=$HOME/bin:$PATH
           snowsql -v
 
       - name: Fetch model and plot from Snowflake stage
         run: |
           mkdir -p downloads
+          export PATH=$HOME/bin:$PATH
+          echo "⬇️ Fetching files from Snowflake..."
           snowsql \
             -a $SNOWSQL_ACCOUNT \
             -u $SNOWSQL_USER \
