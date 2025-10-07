@@ -1,74 +1,56 @@
-name: Fetch Model from Snowflake
- 
+name: Fetch Model from Snowflake (CLI Only)
+
 on:
-  workflow_dispatch:   # manual trigger from Actions tab
-  push:                # auto trigger on push to main branch
+  workflow_dispatch:
+  push:
     branches:
       - main
- 
+
 jobs:
   fetch-model:
     runs-on: ubuntu-latest
     env:
-      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
-      SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
-      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}   # e.g. vy23825.central-india.azure
-      SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-      SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
-      SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
-      SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
- 
+      SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}    # e.g. vy23825.central-india.azure
+      SNOWSQL_USER: ${{ secrets.SNOWFLAKE_USER }}
+      SNOWSQL_PWD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWSQL_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+      SNOWSQL_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+      SNOWSQL_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+      SNOWSQL_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
- 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
- 
-      - name: Install Snowflake connector
-        run: pip install snowflake-connector-python
- 
+
+      - name: Install SnowSQL CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y snowflake-snowsql
+          snowsql -v
+
       - name: Fetch model and plot from Snowflake stage
         run: |
-          python <<EOF
-          import os
-          import snowflake.connector
- 
-          # Clean account string
-          account = os.environ["SNOWFLAKE_ACCOUNT"].strip().lower()
-          account = account.replace("https://", "").replace(".snowflakecomputing.com", "")
- 
-          hostname = f"{account}.snowflakecomputing.com"
-          print(f"🔗 Will connect to: {hostname}")
- 
-          # Connect to Snowflake
-          conn = snowflake.connector.connect(
-              user=os.environ["SNOWFLAKE_USER"],
-              password=os.environ["SNOWFLAKE_PASSWORD"],
-              account=account,
-              role=os.environ.get("SNOWFLAKE_ROLE"),
-              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-              database=os.environ["SNOWFLAKE_DATABASE"],
-              schema=os.environ["SNOWFLAKE_SCHEMA"],
-          )
- 
-          cursor = conn.cursor()
-          stage = "ML_MODELS_STAGE"
-          files = ["power_model.joblib.gz", "prediction_vs_actuals.png"]
- 
-          os.makedirs("./downloads", exist_ok=True)
- 
-          for f in files:
-              print(f"⬇️ Fetching {f} from @{stage}")
-              cursor.execute(f"GET @{stage}/{f} file://./downloads/")
-              print(f"✅ Downloaded {f} to ./downloads/")
- 
-          cursor.close()
-          conn.close()
-          EOF
- 
+          mkdir -p downloads
+          snowsql \
+            -a $SNOWSQL_ACCOUNT \
+            -u $SNOWSQL_USER \
+            -p $SNOWSQL_PWD \
+            -r $SNOWSQL_ROLE \
+            -w $SNOWSQL_WAREHOUSE \
+            -d $SNOWSQL_DATABASE \
+            -s $SNOWSQL_SCHEMA \
+            -q "GET @ML_MODELS_STAGE/power_model.joblib.gz file://$GITHUB_WORKSPACE/downloads/;"
+          snowsql \
+            -a $SNOWSQL_ACCOUNT \
+            -u $SNOWSQL_USER \
+            -p $SNOWSQL_PWD \
+            -r $SNOWSQL_ROLE \
+            -w $SNOWSQL_WAREHOUSE \
+            -d $SNOWSQL_DATABASE \
+            -s $SNOWSQL_SCHEMA \
+            -q "GET @ML_MODELS_STAGE/prediction_vs_actuals.png file://$GITHUB_WORKSPACE/downloads/;"
+          echo "✅ Model and plot downloaded successfully to ./downloads/"
+
       - name: Upload artifacts (model + plot)
         uses: actions/upload-artifact@v4
         with:
