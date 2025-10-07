@@ -1,0 +1,14 @@
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y curl bash less && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/snowflake && \
+    cd /opt/snowflake && \
+    curl -L -o snowsql_install.bash \
+        https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash && \
+    bash snowsql_install.bash -y -d /opt/snowflake -p /opt/snowflake/bin && \
+    rm -f snowsql_install.bash
+
+ENV PATH="/opt/snowflake/bin:${PATH}"
+
+ENTRYPOINT ["snowsql"]
