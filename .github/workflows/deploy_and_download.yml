@@ -8,7 +8,7 @@ on:
 
 jobs:
   fetch-model:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
       SNOWSQL_USER: ${{ secrets.SNOWFLAKE_USER }}
