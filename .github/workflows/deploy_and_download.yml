@@ -1,4 +1,4 @@
-name: Snowflake CLI MLOps Pipeline (Stable)
+name: Snowflake CLI MLOps Pipeline (Final Stable Version)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   snowflake-pipeline:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # ✅ Stable version for SnowSQL installer
 
     env:
       SNOWSQL_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
@@ -23,21 +23,29 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install SnowSQL (non-interactive)
+      # ✅ Step 1: Install SnowSQL CLI using official Snowflake bootstrap installer
+      - name: Install SnowSQL CLI (official method)
         run: |
-          echo "🚀 Installing SnowSQL..."
-          mkdir -p $HOME/snowflake
-          curl -sSL https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/latest/snowsql-linux_x86_64.tgz -o snowsql.tgz
-          tar -xzf snowsql.tgz -C $HOME/snowflake
-          export PATH="$HOME/snowflake/snowsql:$PATH"
-          echo "✅ Installed version:"
-          $HOME/snowflake/snowsql/snowsql -v
+          echo "🚀 Downloading SnowSQL bootstrap installer..."
+          mkdir -p $HOME/snowsql_install
+          cd $HOME/snowsql_install
+          
+          # Download the official bootstrap installer (works on CI/CD)
+          curl -L -o snowsql_install.bash https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-1.2.29-linux_x86_64.bash
+          
+          echo "🔧 Installing SnowSQL non-interactively..."
+          bash snowsql_install.bash -y -d $HOME/snowsql_install -p $HOME/snowsql_install/bin
+          
+          export PATH="$HOME/snowsql_install/bin:$PATH"
+          echo "✅ SnowSQL version:"
+          snowsql -v
 
-      - name: Trigger ML Pipeline in Snowflake
+      # ✅ Step 2: Trigger Snowflake ML pipeline tasks
+      - name: Trigger ML Pipeline
         run: |
-          export PATH="$HOME/snowflake/snowsql:$PATH"
-          echo "🚀 Running Snowflake Tasks..."
-          $HOME/snowflake/snowsql/snowsql \
+          export PATH="$HOME/snowsql_install/bin:$PATH"
+          echo "🚀 Triggering Snowflake ML pipeline..."
+          snowsql \
             -a $SNOWSQL_ACCOUNT \
             -u $SNOWSQL_USER \
             -p $SNOWSQL_PWD \
@@ -51,13 +59,21 @@ jobs:
               EXECUTE TASK TASK_3_MODEL_TRAINING;
               EXECUTE TASK TASK_4_MODEL_EVALUATION;
             "
+          echo "✅ ML pipeline triggered successfully."
 
-      - name: Fetch Model Files from Snowflake
+      # ✅ Step 3: Wait for Snowflake tasks to complete
+      - name: Wait briefly for pipeline completion
         run: |
-          export PATH="$HOME/snowflake/snowsql:$PATH"
+          echo "⏳ Waiting for 60 seconds to let Snowflake tasks complete..."
+          sleep 60
+
+      # ✅ Step 4: Fetch model and artifacts from Snowflake stage
+      - name: Fetch Model Files
+        run: |
+          export PATH="$HOME/snowsql_install/bin:$PATH"
           mkdir -p downloads
-          echo "⬇️ Downloading model files..."
-          $HOME/snowflake/snowsql/snowsql \
+          echo "⬇️ Fetching model files from Snowflake..."
+          snowsql \
             -a $SNOWSQL_ACCOUNT \
             -u $SNOWSQL_USER \
             -p $SNOWSQL_PWD \
@@ -69,10 +85,23 @@ jobs:
               GET @ML_MODELS_STAGE/power_model.joblib.gz file://downloads/;
               GET @ML_MODELS_STAGE/prediction_vs_actuals.png file://downloads/;
             "
-          echo "✅ Model and plot downloaded successfully."
+          echo "✅ Model files downloaded successfully."
 
-      - name: Upload Artifacts
+      # ✅ Step 5: Verify downloaded files
+      - name: Verify Files
+        run: |
+          echo "📂 Listing downloads..."
+          ls -lh downloads/
+          if [ ! -f downloads/power_model.joblib.gz ]; then
+            echo "❌ Model file missing!"; exit 1; fi
+          if [ ! -f downloads/prediction_vs_actuals.png ]; then
+            echo "❌ Plot file missing!"; exit 1; fi
+          echo "✅ Files verified successfully."
+
+      # ✅ Step 6: Upload artifacts to GitHub
+      - name: Upload Model Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: snowflake-ml-artifacts
           path: downloads/
+
