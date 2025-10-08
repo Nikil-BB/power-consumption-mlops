@@ -23,7 +23,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Trigger Snowflake Tasks via REST API
+      - name: Trigger Snowflake ML Tasks via REST API
         run: |
           echo "Triggering Snowflake ML pipeline through REST API..."
 
@@ -36,7 +36,9 @@ jobs:
                      EXECUTE TASK TASK_4_MODEL_EVALUATION;"
 
           echo "Running tasks using REST API..."
+
           RESPONSE=$(curl -s -X POST "https://${SNOWFLAKE_HOST}/api/v2/statements" \
+            --cacert /etc/ssl/certs/ca-certificates.crt \              # ✅ fix SSL error (exit code 60)
             -H "Authorization: Basic ${AUTH}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
@@ -49,8 +51,9 @@ jobs:
                 }")
 
           echo "Snowflake API Response:"
-          echo "${RESPONSE}" | jq '.'
+          echo "${RESPONSE}"
 
+          # Extract the statement handle
           STATEMENT_HANDLE=$(echo "$RESPONSE" | jq -r '.statementHandle')
 
           if [ "$STATEMENT_HANDLE" = "null" ] || [ -z "$STATEMENT_HANDLE" ]; then
@@ -59,27 +62,39 @@ jobs:
           fi
 
           echo "Statement handle: $STATEMENT_HANDLE"
+          echo "STATEMENT_HANDLE=$STATEMENT_HANDLE" >> $GITHUB_ENV
 
       - name: Wait for task completion
         run: |
-          echo "Waiting for 60 seconds before fetching results..."
+          echo "Waiting 60 seconds for Snowflake tasks to complete..."
           sleep 60
 
       - name: Check task execution status
         run: |
+          echo "Checking Snowflake statement status..."
           SNOWFLAKE_HOST="${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
           AUTH=$(echo -n "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" | base64)
 
-          echo "Checking statement status..."
           STATUS_RESPONSE=$(curl -s -X GET "https://${SNOWFLAKE_HOST}/api/v2/statements/${STATEMENT_HANDLE}" \
+            --cacert /etc/ssl/certs/ca-certificates.crt \
             -H "Authorization: Basic ${AUTH}" \
             -H "Accept: application/json")
 
-          echo "Snowflake Status Response:"
-          echo "$STATUS_RESPONSE" | jq '.'
+          echo "Snowflake Task Status:"
+          echo "$STATUS_RESPONSE"
 
-      - name: Fetch model files from Snowflake stage (manual)
+          STATE=$(echo "$STATUS_RESPONSE" | jq -r '.state')
+
+          if [ "$STATE" != "SUCCEEDED" ]; then
+            echo "❌ Snowflake task execution failed or not complete (state: $STATE)"
+            exit 1
+          else
+            echo "✅ Snowflake task execution succeeded!"
+          fi
+
+      - name: Download model artifacts (placeholder)
         run: |
-          echo "To download model artifacts (e.g. power_model.joblib.gz),"
-          echo "use presigned Snowflake stage URLs or COPY INTO commands."
-          echo "Snowflake REST API currently does not support GET file directly."
+          echo "If model files are staged (e.g., in @ML_MODELS_STAGE),"
+          echo "configure presigned URLs or COPY INTO commands to download them here."
+          echo "Artifacts expected: power_model.joblib.gz, prediction_vs_actuals.png"
+
