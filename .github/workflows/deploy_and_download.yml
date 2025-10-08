@@ -30,8 +30,58 @@ jobs:
           SNOWFLAKE_HOST="${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
           AUTH=$(echo -n "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" | base64)
 
+          # SQL commands to execute
           SQL_QUERY="EXECUTE TASK TASK_1_DATA_INGESTION; EXECUTE TASK TASK_2_FEATURE_ENGINEERING; EXECUTE TASK TASK_3_MODEL_TRAINING; EXECUTE TASK TASK_4_MODEL_EVALUATION;"
 
-          echo "Running tasks using REST API..."
+          # Build JSON payload safely
+          PAYLOAD=$(printf '{"statement":"%s","warehouse":"%s","database":"%s","schema":"%s","role":"%s"}' \
+            "$SQL_QUERY" "$SNOWFLAKE_WAREHOUSE" "$SNOWFLAKE_DATABASE" "$SNOWFLAKE_SCHEMA" "$SNOWFLAKE_ROLE")
 
-          RESPONSE=$(curl -s -X POST "https://${SNOWFLAKE_HOST}/api/v2/statements" --cacert /etc/ssl/certs/ca-certificates.crt -H "Authorization: Basic ${AUTH}" -H "Content-Type: application/json" -H "Accept
+          echo "Running tasks using REST API..."
+          RESPONSE=$(curl -s -X POST "https://${SNOWFLAKE_HOST}/api/v2/statements" \
+            --cacert /etc/ssl/certs/ca-certificates.crt \
+            -H "Authorization: Basic ${AUTH}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "$PAYLOAD")
+
+          echo "Snowflake API Response:"
+          echo "${RESPONSE}"
+
+          STATEMENT_HANDLE=$(echo "$RESPONSE" | jq -r '.statementHandle')
+
+          if [ "$STATEMENT_HANDLE" = "null" ] || [ -z "$STATEMENT_HANDLE" ]; then
+            echo "Error: Failed to trigger Snowflake task."
+            exit 1
+          fi
+
+          echo "Statement handle: $STATEMENT_HANDLE"
+          echo "STATEMENT_HANDLE=$STATEMENT_HANDLE" >> $GITHUB_ENV
+
+      - name: Wait for task completion
+        run: |
+          echo "Waiting 60 seconds for Snowflake tasks to complete..."
+          sleep 60
+
+      - name: Check task execution status
+        run: |
+          echo "Checking Snowflake statement status..."
+          SNOWFLAKE_HOST="${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
+          AUTH=$(echo -n "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" | base64)
+
+          STATUS_RESPONSE=$(curl -s -X GET "https://${SNOWFLAKE_HOST}/api/v2/statements/${STATEMENT_HANDLE}" \
+            --cacert /etc/ssl/certs/ca-certificates.crt \
+            -H "Authorization: Basic ${AUTH}" \
+            -H "Accept: application/json")
+
+          echo "Snowflake Task Status:"
+          echo "$STATUS_RESPONSE"
+
+          STATE=$(echo "$STATUS_RESPONSE" | jq -r '.state')
+
+          if [ "$STATE" != "SUCCEEDED" ]; then
+            echo "❌ Snowflake task execution failed or not complete (state: $STATE)"
+            exit 1
+          else
+            echo "✅ Snowflake task execution succeeded!"
+          fi
