@@ -1,4 +1,4 @@
-name: Snowflake ML Pipeline (CLI REST)
+name: Snowflake ML Pipeline via REST API
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  snowflake-pipeline:
+  trigger-ml-pipeline:
     runs-on: ubuntu-latest
 
     env:
@@ -20,13 +20,13 @@ jobs:
       SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Trigger Snowflake ML Tasks (via REST API)
+      - name: Trigger Snowflake Tasks via REST API
         run: |
-          echo "Starting Snowflake ML pipeline trigger..."
-          
+          echo "Triggering Snowflake ML pipeline through REST API..."
+
           SNOWFLAKE_HOST="${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
           AUTH=$(echo -n "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" | base64)
 
@@ -35,8 +35,8 @@ jobs:
                      EXECUTE TASK TASK_3_MODEL_TRAINING;
                      EXECUTE TASK TASK_4_MODEL_EVALUATION;"
 
-          echo "Running Snowflake SQL..."
-          curl -s -X POST "https://${SNOWFLAKE_HOST}/api/v2/statements" \
+          echo "Running tasks using REST API..."
+          RESPONSE=$(curl -s -X POST "https://${SNOWFLAKE_HOST}/api/v2/statements" \
             -H "Authorization: Basic ${AUTH}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
@@ -46,33 +46,40 @@ jobs:
                   \"database\": \"${SNOWFLAKE_DATABASE}\",
                   \"schema\": \"${SNOWFLAKE_SCHEMA}\",
                   \"role\": \"${SNOWFLAKE_ROLE}\"
-                }" | jq '.'
+                }")
 
-          echo "Snowflake tasks triggered successfully."
+          echo "Snowflake API Response:"
+          echo "${RESPONSE}" | jq '.'
 
-      - name: Wait for pipeline to complete
+          STATEMENT_HANDLE=$(echo "$RESPONSE" | jq -r '.statementHandle')
+
+          if [ "$STATEMENT_HANDLE" = "null" ] || [ -z "$STATEMENT_HANDLE" ]; then
+            echo "Error: Failed to trigger Snowflake task."
+            exit 1
+          fi
+
+          echo "Statement handle: $STATEMENT_HANDLE"
+
+      - name: Wait for task completion
         run: |
-          echo "Waiting 60 seconds for Snowflake tasks to complete..."
+          echo "Waiting for 60 seconds before fetching results..."
           sleep 60
 
-      - name: Fetch Model Files from Snowflake Stage
+      - name: Check task execution status
         run: |
-          echo "Downloading model artifacts from Snowflake stage..."
           SNOWFLAKE_HOST="${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
           AUTH=$(echo -n "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" | base64)
 
-          mkdir -p downloads
+          echo "Checking statement status..."
+          STATUS_RESPONSE=$(curl -s -X GET "https://${SNOWFLAKE_HOST}/api/v2/statements/${STATEMENT_HANDLE}" \
+            -H "Authorization: Basic ${AUTH}" \
+            -H "Accept: application/json")
 
-          # Fetch model file (joblib)
-          curl -u "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" \
-            "https://${SNOWFLAKE_HOST}/session/v1/login-request?warehouse=${SNOWFLAKE_WAREHOUSE}&database=${SNOWFLAKE_DATABASE}&schema=${SNOWFLAKE_SCHEMA}&roleName=${SNOWFLAKE_ROLE}" > /dev/null 2>&1
+          echo "Snowflake Status Response:"
+          echo "$STATUS_RESPONSE" | jq '.'
 
-          # Replace with your actual Snowflake stage GET command if exposed via presigned URL
-          echo "Note: For actual model file download, configure a presigned URL stage or Snowflake external function."
-          echo "Files expected: power_model.joblib.gz, prediction_vs_actuals.png"
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: snowflake-ml-artifacts
-          path: downloads/
+      - name: Fetch model files from Snowflake stage (manual)
+        run: |
+          echo "To download model artifacts (e.g. power_model.joblib.gz),"
+          echo "use presigned Snowflake stage URLs or COPY INTO commands."
+          echo "Snowflake REST API currently does not support GET file directly."
