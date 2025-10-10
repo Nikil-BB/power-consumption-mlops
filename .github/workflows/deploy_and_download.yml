@@ -1,87 +1,76 @@
-name: Snowflake ML Pipeline via REST API
-
+name: Fetch Model from Snowflake
+ 
 on:
-  workflow_dispatch:
-  push:
+  workflow_dispatch:   # manual trigger from Actions tab
+  push:                # auto trigger on push to main branch
     branches:
       - main
-
+ 
 jobs:
-  trigger-ml-pipeline:
+  fetch-model:
     runs-on: ubuntu-latest
-
     env:
-      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}          # e.g. vy23825.central-india.azure
       SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
       SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}   # e.g. vy23825.central-india.azure
       SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
       SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
       SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
       SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
-
+ 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Trigger Snowflake ML Tasks via REST API
+ 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+ 
+      - name: Install Snowflake connector
+        run: pip install snowflake-connector-python
+ 
+      - name: Fetch model and plot from Snowflake stage
         run: |
-          echo "Triggering Snowflake ML pipeline through REST API..."
-
-          SNOWFLAKE_HOST="${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
-          AUTH=$(echo -n "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" | base64)
-
-          # SQL commands to execute
-          SQL_QUERY="EXECUTE TASK TASK_1_DATA_INGESTION; EXECUTE TASK TASK_2_FEATURE_ENGINEERING; EXECUTE TASK TASK_3_MODEL_TRAINING; EXECUTE TASK TASK_4_MODEL_EVALUATION;"
-
-          # Build JSON payload safely
-          PAYLOAD=$(printf '{"statement":"%s","warehouse":"%s","database":"%s","schema":"%s","role":"%s"}' \
-            "$SQL_QUERY" "$SNOWFLAKE_WAREHOUSE" "$SNOWFLAKE_DATABASE" "$SNOWFLAKE_SCHEMA" "$SNOWFLAKE_ROLE")
-
-          echo "Running tasks using REST API..."
-          RESPONSE=$(curl -s -X POST "https://${SNOWFLAKE_HOST}/api/v2/statements" \
-            --cacert /etc/ssl/certs/ca-certificates.crt \
-            -H "Authorization: Basic ${AUTH}" \
-            -H "Content-Type: application/json" \
-            -H "Accept: application/json" \
-            -d "$PAYLOAD")
-
-          echo "Snowflake API Response:"
-          echo "${RESPONSE}"
-
-          STATEMENT_HANDLE=$(echo "$RESPONSE" | jq -r '.statementHandle')
-
-          if [ "$STATEMENT_HANDLE" = "null" ] || [ -z "$STATEMENT_HANDLE" ]; then
-            echo "Error: Failed to trigger Snowflake task."
-            exit 1
-          fi
-
-          echo "Statement handle: $STATEMENT_HANDLE"
-          echo "STATEMENT_HANDLE=$STATEMENT_HANDLE" >> $GITHUB_ENV
-
-      - name: Wait for task completion
-        run: |
-          echo "Waiting 60 seconds for Snowflake tasks to complete..."
-          sleep 60
-
-      - name: Check task execution status
-        run: |
-          echo "Checking Snowflake statement status..."
-          SNOWFLAKE_HOST="${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com"
-          AUTH=$(echo -n "${SNOWFLAKE_USER}:${SNOWFLAKE_PASSWORD}" | base64)
-
-          STATUS_RESPONSE=$(curl -s -X GET "https://${SNOWFLAKE_HOST}/api/v2/statements/${STATEMENT_HANDLE}" \
-            --cacert /etc/ssl/certs/ca-certificates.crt \
-            -H "Authorization: Basic ${AUTH}" \
-            -H "Accept: application/json")
-
-          echo "Snowflake Task Status:"
-          echo "$STATUS_RESPONSE"
-
-          STATE=$(echo "$STATUS_RESPONSE" | jq -r '.state')
-
-          if [ "$STATE" != "SUCCEEDED" ]; then
-            echo "❌ Snowflake task execution failed or not complete (state: $STATE)"
-            exit 1
-          else
-            echo "✅ Snowflake task execution succeeded!"
-          fi
+          python <<EOF
+          import os
+          import snowflake.connector
+ 
+          # Clean account string
+          account = os.environ["SNOWFLAKE_ACCOUNT"].strip().lower()
+          account = account.replace("https://", "").replace(".snowflakecomputing.com", "")
+ 
+          hostname = f"{account}.snowflakecomputing.com"
+          print(f"🔗 Will connect to: {hostname}")
+ 
+          # Connect to Snowflake
+          conn = snowflake.connector.connect(
+              user=os.environ["SNOWFLAKE_USER"],
+              password=os.environ["SNOWFLAKE_PASSWORD"],
+              account=account,
+              role=os.environ.get("SNOWFLAKE_ROLE"),
+              warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
+              database=os.environ["SNOWFLAKE_DATABASE"],
+              schema=os.environ["SNOWFLAKE_SCHEMA"],
+          )
+ 
+          cursor = conn.cursor()
+          stage = "ML_MODELS_STAGE"
+          files = ["power_model.joblib.gz", "prediction_vs_actuals.png"]
+ 
+          os.makedirs("./downloads", exist_ok=True)
+ 
+          for f in files:
+              print(f"⬇️ Fetching {f} from @{stage}")
+              cursor.execute(f"GET @{stage}/{f} file://./downloads/")
+              print(f"✅ Downloaded {f} to ./downloads/")
+ 
+          cursor.close()
+          conn.close()
+          EOF
+ 
+      - name: Upload artifacts (model + plot)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-model-and-plot
+          path: downloads/
